@@ -72,9 +72,42 @@ claude plugin marketplace add typesafe-ai/skills
 claude plugin install typesafe@typesafe-ai
 ```
 
-## 미구현
+## 7. 키 pool (429 자동 전환)
 
-두 키 자동 전환(pool). 한 키가 429를 자주 낼 때 추가.
+로컬 프록시 `~/.config/typesafe/pool.py`가 127.0.0.1:8790에서 `api.typesafe.ai`로 중계한다.
+클라이언트가 보낸 키를 먼저 쓰고, 429가 오면 `~/.config/typesafe/keys`(한 줄에 키 하나, 600)의
+다음 키로 재시도한다. curl·Python SDK·JS SDK(jev-mcp) 모두 `TYPESAFE_BASE_URL`을 읽으므로
+설정은 이 변수 하나뿐이다.
+
+```bash
+# ~/.zshrc
+export TYPESAFE_BASE_URL=http://127.0.0.1:8790
+# MCP
+claude mcp add --scope user jev -e TYPESAFE_API_KEY=<KEY2> -e TYPESAFE_BASE_URL=http://127.0.0.1:8790 -- npx -y jev-mcp
+```
+
+launchd(`~/Library/LaunchAgents/com.typesafe.pool.plist`, KeepAlive)가 항상 띄운다.
+
+설치 (저장소의 `pool/` 사용):
+
+```bash
+mkdir -p ~/.config/typesafe && chmod 700 ~/.config/typesafe
+printf '<KEY1>\n<KEY2>\n' > ~/.config/typesafe/keys && chmod 600 ~/.config/typesafe/keys
+cp pool/pool.py ~/.config/typesafe/
+sed "s|~|$HOME|g" pool/com.typesafe.pool.plist > ~/Library/LaunchAgents/com.typesafe.pool.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.typesafe.pool.plist
+```
+
+확인:
+
+```bash
+launchctl print gui/$(id -u)/com.typesafe.pool | grep state   # running 이면 정상
+python3 ~/.config/typesafe/pool.py --selftest                  # 429→다음 키 전환 검증
+tail ~/.config/typesafe/pool.log                               # 실제 전환 기록
+```
+
+프록시가 죽으면 SDK/MCP 호출이 모두 실패한다. 우회: `unset TYPESAFE_BASE_URL` 로 직접 호출.
+키 추가는 keys 파일에 한 줄 추가 후 `launchctl kickstart -k gui/$(id -u)/com.typesafe.pool`.
 
 ## 참고
 
